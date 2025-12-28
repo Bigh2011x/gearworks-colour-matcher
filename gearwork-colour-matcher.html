@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gearworks Smart Matcher</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background-color: #121212; color: #eee; display: flex; justify-content: center; padding: 20px; }
+        .container { background-color: #1e1e1e; padding: 25px; border-radius: 12px; width: 100%; max-width: 650px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        h2 { text-align: center; color: #ff4757; margin-bottom: 20px; }
+        .input-row { display: flex; gap: 10px; margin-bottom: 15px; align-items: flex-end; }
+        .input-group { flex-grow: 1; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; font-size: 0.85em; color: #bbb; text-transform: uppercase; }
+        input[type="text"], select { width: 100%; padding: 12px; border-radius: 6px; border: 1px solid #333; background: #252525; color: white; box-sizing: border-box; }
+        input[type="color"] { width: 60px; height: 45px; border: none; border-radius: 6px; background: #252525; cursor: pointer; padding: 2px; }
+        .level-selector { display: flex; flex-wrap: wrap; gap: 10px; background: #252525; padding: 10px; border-radius: 6px; border: 1px solid #333; margin-bottom: 15px; }
+        .level-item { display: flex; align-items: center; gap: 5px; font-size: 0.9em; cursor: pointer; }
+        .threshold-group { margin: 20px 0; background: #2a2a2a; padding: 15px; border-radius: 8px; border-left: 4px solid #ff4757; }
+        input[type="range"] { width: 100%; cursor: pointer; }
+        button { width: 100%; padding: 15px; background: #ff4757; border: none; border-radius: 6px; color: white; font-weight: bold; cursor: pointer; font-size: 1em; }
+        .results-list { margin-top: 25px; display: none; }
+        .match-card { display: flex; align-items: center; background: #2a2a2a; margin-bottom: 8px; padding: 10px; border-radius: 8px; border-left: 4px solid transparent; cursor: pointer; transition: transform 0.1s; }
+        .match-card:hover { transform: scale(1.01); background: #333; border-left-color: #ff4757; }
+        .swatch { width: 50px; height: 50px; border-radius: 4px; margin-right: 15px; border: 1px solid #111; }
+        .match-info { flex-grow: 1; }
+        .match-code { font-weight: bold; font-size: 1.1em; color: #ff4757; }
+        .match-rgb { font-family: monospace; font-size: 0.85em; color: #00ff41; display: block; }
+        #copyToast { visibility: hidden; min-width: 200px; background-color: #333; color: #fff; text-align: center; border-radius: 2px; padding: 16px; position: fixed; left: 50%; bottom: 30px; transform: translateX(-50%); border: 1px solid #ff4757; z-index: 100; }
+        #copyToast.show { visibility: visible; animation: fadein 0.5s, fadeout 0.5s 2.5s; }
+        @keyframes fadein { from {bottom: 0; opacity: 0;} to {bottom: 30px; opacity: 1;} }
+        @keyframes fadeout { from {bottom: 30px; opacity: 1;} to {bottom: 0; opacity: 0;} }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Gearworks Colour-Matcher</h2>
+    
+    <div class="input-row">
+        <div class="input-group">
+            <label>Target Color (Hex or R,G,B)</label>
+            <input type="text" id="colorInput" value="#FFFFFF" placeholder="#FF0000" oninput="syncFromText()">
+        </div>
+        <div class="input-group" style="flex-grow: 0;">
+            <label>Picker</label>
+            <input type="color" id="colorPicker" value="#ffffff" oninput="syncFromPicker()">
+        </div>
+    </div>
+
+    <div class="input-group">
+        <label>Material</label>
+        <p style="font-size: 0.8em; color: #888; margin-top: -5px;">Select Plastic / Rubber / Glass to use raw colors</p>
+        <select id="material" onchange="findMatches()">
+            <option value="1">Plastic / Rubber / Glass (1.0)</option>
+            <option value="0.875">Wood (0.875)</option>
+            <option value="0.7">Metal (0.7)</option>
+            <option value="0.5">Diamond Plate (0.5)</option>
+            <option value="0.475">Steel / Carbon Fiber (0.475)</option>
+        </select>
+    </div>
+
+    <label style="margin-top:15px">Include Classes:</label>
+    <div class="level-selector" id="levelSelector">
+        <label class="level-item"><input type="checkbox" value="A" checked onchange="findMatches()"> A</label>
+        <label class="level-item"><input type="checkbox" value="B" checked onchange="findMatches()"> B</label>
+        <label class="level-item"><input type="checkbox" value="C" checked onchange="findMatches()"> C</label>
+        <label class="level-item"><input type="checkbox" value="D" checked onchange="findMatches()"> D</label>
+        <label class="level-item"><input type="checkbox" value="E" checked onchange="findMatches()"> E</label>
+        <label class="level-item"><input type="checkbox" value="F" checked onchange="findMatches()"> F</label>
+        <label class="level-item"><input type="checkbox" value="G" checked onchange="findMatches()"> G</label>
+    </div>
+
+    <div class="threshold-group">
+        <label>Search Sensitivity: <span id="threshVal">100</span></label>
+        <input type="range" id="threshold" min="5" max="300" value="100" oninput="document.getElementById('threshVal').innerText = this.value; findMatches();">
+    </div>
+
+    <div id="resultsArea" class="results-list">
+        <label id="resultCount">Results:</label>
+        <div id="listContainer"></div>
+    </div>
+</div>
+
+<div id="copyToast">Copied to Clipboard!</div>
+
+<script>
+    const LinkToColor = { "A001": [15,15,15], "A002": [0,35,35], "A003": [29,26,25], "A004": [14,32,47], "A005": [25,35,48], "A006": [0,48,48], "A007": [40,36,34], "A008": [19,42,62], "A009": [38,40,34], "A010": [0,56,56], "A011": [2,58,42], "A012": [50,40,30], "A013": [23,52,45], "A014": [32,45,62], "A015": [1,66,60], "A016": [54,48,48], "A017": [61,49,37], "A018": [52,54,46], "A019": [51,53,56], "A020": [3,78,57], "A021": [0,76,76], "A022": [89,41,25], "A023": [17,66,99], "A024": [60,55,55], "A025": [50,63,48], "A026": [62,58,56], "A027": [73,58,36], "A028": [61,66,39], "A029": [68,60,60], "A030": [76,64,49], "A031": [4,97,71], "A032": [82,61,53], "A033": [112,52,31], "A034": [60,76,58], "A035": [0,99,99], "A036": [74,69,67], "A037": [81,78,76], "A038": [79,85,50], "A039": [103,72,71], "A040": [71,89,68], "A041": [95,80,62], "A042": [77,95,57], "A043": [116,86,56], "A044": [89,98,71], "A045": [77,103,83], "A046": [95,102,60], "A047": [107,91,91], "A048": [122,89,89], "A049": [102,98,96], "A050": [84,104,122], "A051": [115,96,88], "A052": [103,104,95], "A053": [97,108,92], "A054": [133,94,92], "A055": [95,118,71], "A056": [108,107,109], "A057": [86,123,93], "A058": [107,113,104], "A059": [107,111,129], "A060": [103,122,91], "A061": [139,104,104], "A062": [89,130,112], "A063": [148,110,72], "A064": [120,118,117], "A065": [120,120,120], "A066": [122,131,103], "A067": [134,124,124], "A068": [147,123,113], "A069": [111,137,162], "A070": [127,137,122], "A071": [158,128,91], "A072": [129,153,114], "A073": [137,141,165], "A074": [185,128,107], "A075": [167,144,108], "A076": [150,147,146], "A077": [149,151,138], "A078": [147,153,135], "A079": [159,148,140], "A080": [149,157,144], "A081": [138,161,158], "A082": [119,173,149], "A083": [190,147,116], "A084": [192,156,111], "A085": [167,166,158], "A086": [168,166,165], "A087": [171,170,154], "A088": [227,158,131], "A089": [148,190,195], "A090": [185,185,141], "A091": [200,182,136], "A092": [186,194,171], "A093": [189,189,189], "A094": [210,187,150], "A095": [210,183,177], "A096": [173,201,198], "A097": [247,191,151], "A098": [215,213,211], "A099": [232,217,205], "A100": [247,226,169], "A101": [250,230,211], "A102": [240,239,216], "A103": [239,239,233], "A104": [250,240,230], "A105": [249,249,195], "A106": [252,252,252], "B001": [103,0,0], "B002": [129,55,52], "B003": [29,93,149], "B004": [170,74,68], "B005": [39,123,199], "B006": [158,103,35], "B007": [73,147,41], "B008": [82,125,162], "B009": [179,99,104], "B010": [127,149,65], "B011": [191,124,42], "B012": [179,116,120], "B013": [232,126,51], "B014": [128,144,255], "B015": [128,159,186], "B016": [177,160,76], "B017": [111,168,220], "B018": [138,207,69], "B019": [210,165,156], "B020": [226,185,60], "B021": [176,207,91], "B022": [159,197,232], "B023": [234,213,101], "B024": [194,247,255], "C001": [69,94,255], "C002": [211,33,211], "C003": [165,86,245], "C004": [253,84,72], "C005": [255,128,0], "C006": [0,255,60], "C007": [255,128,215], "C008": [72,255,237], "C009": [255,247,0], "D001": [19,86,173], "D002": [83,76,185], "D003": [185,81,73], "D004": [52,167,84], "D005": [184,103,76], "D006": [48,166,150], "D007": [175,175,79], "E001": [0,0,0], "E002": [112,105,255], "E003": [170,113,145], "E004": [175,132,110], "E005": [177,177,177], "F001": [50,50,50], "F002": [186,106,90], "F003": [105,148,186], "F004": [186,142,55], "F005": [140,186,104], "F006": [193,193,193], "G001": [6,6,6], "G002": [19,86,174], "G003": [83,76,186], "G004": [185,81,74], "G005": [52,167,85], "G006": [112,104,255], "G007": [185,112,71], "G008": [52,179,160], "G009": [175,132,111], "G010": [202,134,174], "G011": [176,176,80], "G012": [176,176,176] };
+
+    function rgbToHsv(r, g, b) {
+        r /= 255; g /= 255; b /= 255;
+        let max = Math.max(r, g, b), min = Math.min(r, g, b);
+        let h, s, v = max;
+        let d = max - min;
+        s = max === 0 ? 0 : d / max;
+        if (max === min) { h = 0; } 
+        else {
+            switch (max) {
+                case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+                case g: h = (b - r) / d + 2; break;
+                case b: h = (r - g) / d + 4; break;
+            }
+            h /= 6;
+        }
+        return [h * 360, s * 100, v * 100];
+    }
+
+    function syncFromPicker() {
+        document.getElementById('colorInput').value = document.getElementById('colorPicker').value.toUpperCase();
+        findMatches();
+    }
+
+    function syncFromText() {
+        const text = document.getElementById('colorInput').value;
+        if (/^#[0-9A-F]{6}$/i.test(text)) {
+            document.getElementById('colorPicker').value = text;
+            findMatches();
+        } else if (text.split(',').length === 3) {
+            findMatches();
+        }
+    }
+
+    function findMatches() {
+        const inputStr = document.getElementById('colorInput').value;
+        let r, g, b;
+        if (inputStr.startsWith('#')) {
+            r = parseInt(inputStr.slice(1, 3), 16);
+            g = parseInt(inputStr.slice(3, 5), 16);
+            b = parseInt(inputStr.slice(5, 7), 16);
+        } else {
+            const parts = inputStr.split(',').map(n => parseInt(n.trim()));
+            if (parts.length === 3) [r, g, b] = parts;
+        }
+        
+        if (isNaN(r) || isNaN(g) || isNaN(b)) return;
+        
+        const multiplier = parseFloat(document.getElementById('material').value);
+        const threshold = parseInt(document.getElementById('threshold').value);
+        const checkedLevels = Array.from(document.querySelectorAll('#levelSelector input:checked')).map(el => el.value);
+
+        const targetHSV = rgbToHsv(r, g, b);
+        const matches = [];
+
+        for (const [code, baseRgb] of Object.entries(LinkToColor)) {
+            if (!checkedLevels.includes(code.charAt(0))) continue;
+
+            const adjR = baseRgb[0] * multiplier;
+            const adjG = baseRgb[1] * multiplier;
+            const adjB = baseRgb[2] * multiplier;
+
+            const currentHSV = rgbToHsv(adjR, adjG, adjB);
+
+            let score;
+            
+            // LOGIC FIX: Handle Neutral colors (White/Grey/Black) separately
+            // If target saturation is very low, hue doesn't matter. Use RGB distance.
+            if (targetHSV[1] < 10) {
+                const dr = r - adjR;
+                const dg = g - adjG;
+                const db = b - adjB;
+                // Standard Euclidean distance scaled to match threshold expectations
+                score = Math.sqrt(dr*dr + dg*dg + db*db) * 0.5;
+            } else {
+                // For colorful targets, use weighted HSV
+                let hDiff = Math.abs(targetHSV[0] - currentHSV[0]);
+                if (hDiff > 180) hDiff = 360 - hDiff;
+
+                const sDiff = Math.abs(targetHSV[1] - currentHSV[1]);
+                const vDiff = Math.abs(targetHSV[2] - currentHSV[2]);
+
+                // We scale Hue importance based on how saturated the target is
+                const hWeight = (targetHSV[1] / 100) * 8; 
+                score = (hDiff * hWeight) + (sDiff * 1.5) + (vDiff * 2);
+            }
+
+            if (score <= threshold) {
+                matches.push({ 
+                    code, 
+                    finalR: Math.round(adjR), 
+                    finalG: Math.round(adjG), 
+                    finalB: Math.round(adjB), 
+                    score 
+                });
+            }
+        }
+
+        matches.sort((a, b) => a.score - b.score);
+        render(matches);
+    }
+
+    function render(matches) {
+        const container = document.getElementById('listContainer');
+        const resultsArea = document.getElementById('resultsArea');
+        container.innerHTML = "";
+        
+        document.getElementById('resultCount').innerText = `${matches.length} matches found:`;
+        
+        matches.forEach(m => {
+            const rgb_text = `${m.finalR}, ${m.finalG}, ${m.finalB}`;
+            const card = document.createElement('div');
+            card.className = "match-card";
+            card.onclick = () => {
+                // Fixed: Copy the code or RGB value
+                navigator.clipboard.writeText(m.code);
+                const toast = document.getElementById("copyToast");
+                toast.innerText = `Copied ${m.code} to clipboard!`;
+                toast.className = "show";
+                setTimeout(() => { toast.className = ""; }, 2000);
+            };
+            card.innerHTML = `
+                <div class="swatch" style="background-color: rgb(${m.finalR}, ${m.finalG}, ${m.finalB})"></div>
+                <div class="match-info">
+                    <span class="match-code">${m.code}</span>
+                    <span class="match-rgb">RGB: ${rgb_text}</span>
+                </div>
+                <div style="font-size:0.7em; color:#888">Score: ${Math.round(m.score)}</div>
+            `;
+            container.appendChild(card);
+        });
+        resultsArea.style.display = 'block';
+    }
+
+    // Initial run
+    window.onload = findMatches;
+</script>
+</body>
+</html>
